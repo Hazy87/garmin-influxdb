@@ -1,2 +1,2 @@
 garminconnect
-influxdb
+influxdb_client

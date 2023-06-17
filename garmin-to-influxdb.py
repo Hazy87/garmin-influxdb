@@ -9,11 +9,11 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
     GarminConnectAuthenticationError,
 )
-
+from influxdb_client.client.write_api import SYNCHRONOUS
 from datetime import date, timedelta
-import time
-from influxdb import InfluxDBClient
-
+import time, os, json
+import influxdb_client
+from influxdb_client import InfluxDBClient
 import logging
 logging.basicConfig(level=logging.DEBUG)
 start_date = date(2018,4,1)
@@ -23,15 +23,16 @@ today = date.today()
 # The speed multiplier was found by taking the "averageSpeed" float from an activity and comparing
 # to the speed reporting in the app. For example a speed of 1.61199998 * multiplyer = 5.77804 km/hr
 speed_multiplier = 3.584392177
-garmin_username = ''
-garmin_password = ""
+garmin_username = os.getenv('GARMIN_USERNAME')
+garmin_password = os.getenv('GARMIN_PASSWORD')
 
 garmin_date_format = "%Y-%m-%d"
-influx_server = "192.168.99.60"
-influx_port = 8086
-influx_username = ""
-influx_password = ""
-influx_db = "garmin"
+influx_server = os.getenv('INFLUXDB_HOST')
+influx_token = os.getenv('INFLUXDB_TOKEN')
+influx_port = os.getenv('INFLUXDB_PORT')
+influx_username = os.getenv('INFLUXDB_USERNAME')
+influx_password = os.getenv('INFLUXDB_PASSWORD')
+influx_db = os.getenv('INFLUXDB_DB')
 influxdb_time_format = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -144,8 +145,7 @@ def create_json_body(measurement, measurement_value, datestamp, tags={}):
     :param tags: any tags to be assiated with the measurement. Expects a dict
     :return: json object
     """
-    json_body = [
-        {
+    json_body ={
             "measurement": measurement,
             "tags": tags,
             "time": datestamp,
@@ -153,7 +153,6 @@ def create_json_body(measurement, measurement_value, datestamp, tags={}):
                 "value": measurement_value
             }
         }
-    ]
     return json_body
 
 
@@ -176,7 +175,8 @@ def create_influxdb_daily_measurement(user_data, influxdb_client):
                 value = value / 60
             print(user_data['current_date'])
             json_body = create_json_body(heading, value, user_data['current_date'])
-            influxdb_client.write_points(json_body)
+            print(json.dumps(json_body))
+            write_api.write(bucket=influx_db,org="alex", record= json_body)
 
 
 def create_influxdb_multi_measurement(user_data, subset_list_of_stats, start_time_heading, date_format,
@@ -221,7 +221,7 @@ def create_influxdb_multi_measurement(user_data, subset_list_of_stats, start_tim
                 json_body = create_json_body(inner_heading, value, heading)
                 print(current_date)
                 print("Adding: %s\nValue: %s" % (inner_heading, value))
-                influxdb_client.write_points(json_body)
+                write_api.write(bucket="garmin",org="hazy",record= json_body)
     print("")
 
 
@@ -236,7 +236,10 @@ activity_list = ['distance', 'duration', 'averageSpeed', 'maxSpeed', 'averageHR'
                 'averageRunningCadenceInStepsPerMinute', 'steps', 'avgStrideLength']
 # there is very little data in the step_data so it's not worth re-skinning
 time_delta = end_date - start_date
-influxdb_client = InfluxDBClient(influx_server, influx_port, influx_username, influx_password, influx_db)
+print(influx_username)
+print(influx_password)
+influxdb_client = InfluxDBClient(url= influx_server + ":"  + influx_port, token =influx_token, verify_ssl=False)
+write_api = influxdb_client.write_api(write_options=SYNCHRONOUS)
 create_influxdb_multi_measurement(activities, activity_list, 'startTimeLocal', '%Y-%m-%d %H:%M:%S',
                                  timestamp_offset=True)
 for x in range(time_delta.days +1):
